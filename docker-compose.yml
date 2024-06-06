@@ -1,0 +1,144 @@
+version: '3.8'
+
+services:
+  traefik:
+    image: traefik:v2.3
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--entrypoints.web.address=:80"
+    ports:
+      - "80:80"
+      - "8080:8080"
+    labels:
+      - "traefik.debug=true"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock"
+    networks:
+      - web
+
+  laravel:
+    image: laravel
+    build:
+      context: ./laravel
+    working_dir: /var/www/app
+    volumes:
+      - ./laravel:/var/www/app
+    ports:
+      - "8082:8082"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.laravel.rule=(Host(`laravel.localhost`))"
+    networks:
+      - web
+    depends_on:
+      - mongodb
+      - redis
+      - mysql
+      - postgres
+      - traefik
+
+  flask:
+    build:
+      context: ./python
+    image: flaskapp
+    working_dir: /app
+    command: python3 -m flask run --host=0.0.0.0 --port=5000
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./python:/app
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.flask.rule=Host(`flask.localhost`)"
+      - "traefik.http.services.flask.loadbalancer.server.port=5000"
+    networks:
+      - web
+    depends_on:
+      - mongodb
+      - redis
+      - mysql
+      - postgres
+      - traefik
+
+  node:
+    build:
+      context: ./node
+    image: node
+    working_dir: /app/server
+    command: npm run start:dev
+    volumes:
+      - ./node:/app/server
+    ports:
+      - "3001:3001"
+    depends_on:
+      - mongodb
+      - redis
+      - mysql
+      - postgres
+      - traefik
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.node.rule=(host(`node.localhost`))"
+    networks:
+      - web
+
+  react:
+    build:
+      context: ./react-app
+    image: react
+    working_dir: /app/frontend
+    volumes:
+      - ./react-app:/app/frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - node
+      - laravel
+      - traefik
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.react-app.rule=host(`localhost`)"
+    networks:
+      - web
+
+  mysql:
+    image: mysql:latest
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: "password1"
+      MYSQL_DATABASE: "mysqldb"
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+  postgres:
+    image: postgres:latest
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: "password1"
+      POSTGRES_DB: "postgresdb"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  mongodb:
+    image: mongo:latest
+    volumes:
+      - mongodb_data:/data/db
+    ports:
+      - "27017:27017"
+
+  redis:
+    image: redis:latest
+    volumes:
+      - redis_data:/data
+
+volumes:
+  mongodb_data:
+  redis_data:
+  mysql_data:
+  postgres_data:
+
+
+networks:
+  web:
+    external: true
